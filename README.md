@@ -1,4 +1,3 @@
-```markdown
 # Credit Risk Probability Model for Alternative Data
 
 ## Overview
@@ -12,7 +11,7 @@ Bati Bank is partnering with an eCommerce platform to offer BNPL services. This 
 4. Determining optimal loan amounts and durations
 
 ## Project Structure
-```
+
 credit-risk-model/
 ├── .github/workflows/ci.yml   # CI/CD pipeline
 ├── data/                     # Data storage (gitignored)
@@ -35,7 +34,6 @@ credit-risk-model/
 ├── requirements.txt
 ├── .gitignore
 └── README.md
-```
 
 ## Credit Scoring Business Understanding
 
