@@ -1,0 +1,14 @@
+name: Credit Risk Model CI/CD
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt

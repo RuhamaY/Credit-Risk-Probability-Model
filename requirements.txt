@@ -1,0 +1,36 @@
+# Core dependencies
+python==3.9.12
+numpy==1.23.5
+pandas==1.5.3
+scikit-learn==1.2.2
+scipy==1.10.1
+
+# Feature engineering
+xverse==0.2.0
+category-encoders==2.6.0
+woe==0.1.4
+
+# Modeling
+xgboost==1.7.5
+lightgbm==3.3.5
+imbalanced-learn==0.10.1
+
+# ML Ops
+mlflow==2.3.2
+prefect==2.7.7
+
+# API
+fastapi==0.95.2
+uvicorn==0.22.0
+pydantic==1.10.7
+
+# Testing & Quality
+pytest==7.3.1
+pytest-cov==4.0.0
+flake8==6.0.0
+black==23.3.0
+
+# Utilities
+python-dotenv==1.0.0
+joblib==1.2.0
+tqdm==4.65.0
