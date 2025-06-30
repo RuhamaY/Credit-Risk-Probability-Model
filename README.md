@@ -1,5 +1,3 @@
-Here's the complete `README.md` content for your credit risk modeling project:
-
 ```markdown
 # Credit Risk Probability Model for Alternative Data
 
