@@ -1,14 +1,38 @@
-name: Credit Risk Model CI/CD
+version: '3.8' # Good version, supports current Docker Compose features
 
-on:
-  push:
-  pull_request:
 
-jobs:
-  ci:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+services:
+  web:
+    build: . # Builds the image using the Dockerfile in the current directory
+    ports:
+      - "8000:8000" # Maps host port 8000 to container port 8000 for your FastAPI app
+    volumes:
+      # Mounts the current directory (your project root) into /app inside the container.
+      # This is excellent for development as changes on your host machine
+      # are immediately reflected in the container due to Uvicorn's --reload.
+      # It effectively overlays/overrides the `COPY . .` instruction for source code.
+      # Ensure you have a .dockerignore file to prevent unnecessary files from being
+      # copied into the image initially, even if they are later mounted.
+      - .:/app
+    environment:
+      # Crucial: Tells your FastAPI app (inside the 'web' container) how to connect to the MLflow server.
+      # 'mlflow' here is the service name defined below in this docker-compose file.
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      # Ensures the 'mlflow' service starts successfully before 'web' attempts to start.
+      - mlflow
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+  mlflow:
+    image: mlflow/mlflow # Uses the official MLflow Docker image
+    ports:
+      - "5000:5000" # Maps host port 5000 to container port 5000 for MLflow UI
+    volumes:
+      # Mounts your local 'mlruns' directory to '/mlruns' inside the container.
+      # This is vital for persisting your MLflow experiments and models on your host machine,
+      # so data isn't lost when the container is removed/restarted.
+      - ./mlruns:/mlruns
+    command: > # Multi-line command for starting the MLflow server
+      mlflow server
+      --backend-store-uri file:///mlruns # Tells MLflow to store data in the mounted volume
+      --default-artifact-root file:///mlruns # Tells MLflow to store artifacts in the mounted volume
+      --host 0.0.0.0 # Allows external connections to the MLflow UI inside the container
