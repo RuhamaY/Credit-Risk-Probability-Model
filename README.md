@@ -1,17 +1,21 @@
 # Credit Risk Probability Model for Alternative Data
 
 ## Overview
-An end-to-end implementation for building, deploying, and automating a credit risk model using eCommerce behavioral data to power a buy-now-pay-later (BNPL) service.
+
+An end-to-end implementation for building, deploying, and automating a credit risk model using eCommerce behavioral data to power a Buy-Now-Pay-Later (BNPL) service.
 
 ## Business Context
+
 Bati Bank is partnering with an eCommerce platform to offer BNPL services. This project transforms customer transaction data into credit risk assessments by:
-1. Creating a proxy for default risk using behavioral patterns
-2. Developing a predictive model for risk probability
-3. Building a scoring system for loan decisions
-4. Determining optimal loan amounts and durations
+
+1. Creating a proxy for default risk using behavioral patterns.
+2. Developing a predictive model for risk probability.
+3. Building a scoring system for loan decisions.
+4. Determining optimal loan amounts and durations.
 
 ## Project Structure
 
+```
 credit-risk-model/
 ├── .github/workflows/ci.yml   # CI/CD pipeline
 ├── data/                     # Data storage (gitignored)
@@ -34,24 +38,30 @@ credit-risk-model/
 ├── requirements.txt
 ├── .gitignore
 └── README.md
+```
 
 ## Credit Scoring Business Understanding
 
 ### 1. Basel II Accord's Impact on Model Design
+
 The Basel II framework mandates:
-- **Risk-sensitive capital requirements** that demand precise probability of default (PD) estimates
-- **Model validation** processes requiring full documentation of methodology
-- **Transparency** in risk assessment for regulatory compliance
-- **Consistency** with the 90-day past due default definition
+
+* **Risk-sensitive capital requirements** requiring precise Probability of Default (PD) estimates.
+* **Model validation** with full methodology documentation.
+* **Transparency** in risk assessment for regulatory compliance.
+* **Alignment** with the 90-day past due default definition.
 
 This necessitates:
-- Clear audit trails for all modeling decisions
-- Documentation of proxy variable rationale
-- Explainable model architectures
-- Robust performance validation
+
+* Clear audit trails for all modeling decisions.
+* Documented proxy variable rationale.
+* Explainable, interpretable model architectures.
+* Robust performance validation and monitoring.
 
 ### 2. Proxy Variable Strategy
+
 **Proxy Definition Approach:**
+
 ```python
 # Pseudocode for risk proxy creation
 def create_risk_proxy(df):
@@ -59,11 +69,11 @@ def create_risk_proxy(df):
     recency = days_since_last_transaction
     frequency = transactions_per_month
     monetary = average_transaction_value
-    
+
     # Behavioral flags
     has_fraud_history = max(fraud_result)
     chargeback_rate = negative_transactions / total_transactions
-    
+
     # Combine into risk score
     risk_proxy = (0.3*recency_score + 
                   0.2*frequency_score + 
@@ -75,17 +85,17 @@ def create_risk_proxy(df):
 
 **Business Risks and Mitigations:**
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Proxy Accuracy | 15-20% potential misclassification | Validate against multiple definitions |
-| Regulatory Alignment | May not match Basel PD | Document mapping to 90-day default |
-| Feature Drift | Behavioral changes over time | Quarterly model recalibration |
-| Bias | Disparate impact risks | Fairness testing by demographic |
-
+| Risk                 | Impact                             | Mitigation                         |
+| -------------------- | ---------------------------------- | ---------------------------------- |
+| Proxy Accuracy       | 15-20% potential misclassification | Validate with multiple definitions |
+| Regulatory Alignment | May not match Basel PD             | Document mapping to 90-day default |
+| Feature Drift        | Behavioral changes over time       | Quarterly model recalibration      |
+| Bias                 | Potential disparate impact         | Fairness testing by demographic    |
 
 ## Model Development
 
 **Training Framework:**
+
 ```python
 import mlflow
 from sklearn.ensemble import GradientBoostingClassifier
@@ -105,33 +115,92 @@ with mlflow.start_run():
 ```
 
 **Evaluation Metrics:**
-1. Primary: AUC-ROC (>0.8 target)
-2. Secondary: Precision at 90% recall
-3. Business: Expected loss calculation
 
+* Primary: AUC-ROC (target > 0.8)
+* Secondary: Precision at 90% recall
+* Business: Expected loss calculations
 
 ## Getting Started
 
-1. **Setup**:
+### 1. Clone the Repository
+
 ```bash
-git clone https://github.com/RuhamaY/Credit-Risk-Probability-Model.git
+git clone https://github.com/Shegaw-21hub/credit-risk-model.git
 cd credit-risk-model
+```
+
+### 2. Local Python Virtual Environment (Recommended)
+
+```bash
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+```
+
+### 3. Install Python Dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-2. **Run Pipeline**:
+### 4. Data Acquisition
+
+Place your raw dataset files in the `data/raw/` directory.
+
+### 5. Run the Data Processing Pipeline
+
 ```bash
-# Process data
 python src/data_processing.py
-
-# Train model
-python src/train.py
-
-# Start API
-uvicorn src.api.main:app --reload
 ```
 
-3. **API Endpoints**:
-- `POST /predict` - Risk scoring
-- `GET /metrics` - Model performance
-- `POST /batch_predict` - Bulk processing
+This script performs cleaning, feature engineering (including RFM and WoE), and generates `model_ready_data.csv`.
+
+### 6. Run Unit Tests
+
+```bash
+python tests/test_data_processing.py
+```
+
+### 7. Model Training
+
+```bash
+python src/train.py
+```
+
+This trains models, performs hyperparameter tuning, evaluates performance, and logs results with MLflow.
+
+## Docker Compose Setup for Local Development
+
+**Prerequisites:**
+
+* Docker Desktop or Docker Engine
+* Git
+* (Optional) Local Python for script execution
+
+### 1. Build and Run with Docker Compose
+
+```bash
+docker-compose up --build
+```
+
+This will:
+
+* Build the FastAPI service container
+* Start both FastAPI and MLflow Tracking Server
+* Mount the project directory for live code updates
+* Persist MLflow experiments locally in `mlruns/`
+
+### 2. Accessing Services
+
+* MLflow UI (Experiment Tracking): [http://localhost:5000](http://localhost:5000)
+* FastAPI Application with docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+## API Endpoints
+
+* `POST /predict` - Risk scoring for a new customer
+* `GET /metrics` - View current model performance
+* `POST /batch_predict` - Bulk risk predictions
+
+---
