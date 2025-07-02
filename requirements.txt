@@ -5,3 +5,8 @@ seaborn
 notebook
 scikit-learn
 xverse
+woe>=0.1.4
+flake8>=4.0.1
+black>=22.3.0
+pytest>=7.1.2
+python-dotenv>=0.20.0
