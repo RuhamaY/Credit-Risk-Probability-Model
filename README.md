@@ -125,7 +125,7 @@ with mlflow.start_run():
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Shegaw-21hub/credit-risk-model.git
+git clone https://github.com/RuhamaY/Credit-Risk-Probability-Model.git
 cd credit-risk-model
 ```
 
