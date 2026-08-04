@@ -1,42 +1,32 @@
-version: '3.8'
-
 services:
   api:
     build: .
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      # Mount artefacts only; the image already contains the application code.
+      - ./models:/app/models
+      - ./mlruns:/app/mlruns
     environment:
       - PYTHONPATH=/app
-      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MODEL_PATH=/app/models/best_model.pkl
+      - MLFLOW_TRACKING_URI=file:///app/mlruns
+      - MLFLOW_ALLOW_FILE_STORE=true
     depends_on:
       - mlflow
     restart: unless-stopped
 
+  # Tracking UI for browsing experiments logged by src/train.py.
   mlflow:
-    image: mlflow/mlflow
+    image: ghcr.io/mlflow/mlflow:v3.1.1
     ports:
       - "5000:5000"
     volumes:
-      - ./mlruns:/mlflow/mlruns
-    environment:
-      - MLFLOW_TRACKING_URI=http://mlflow:5000
-      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+      - ./mlruns:/mlruns
     command: >
       mlflow server
-      --backend-store-uri /mlflow/mlruns
-      --default-artifact-root s3://mlflow/
+      --backend-store-uri file:///mlruns
+      --default-artifact-root file:///mlruns
       --host 0.0.0.0
-
-  minio:
-    image: minio/minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - ./minio_data:/data
-    environment:
-      - MINIO_ROOT_USER=mlflow
-      - MINIO_ROOT_PASSWORD=mlflow123
-    command: server /data --console-address ":9001"
+      --port 5000
+    restart: unless-stopped

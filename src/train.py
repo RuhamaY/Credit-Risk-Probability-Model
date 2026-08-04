@@ -1,206 +1,214 @@
-import pandas as pd
-import numpy as np
+"""Train, evaluate, and register credit risk models with MLflow tracking."""
+
+from __future__ import annotations
+
 import os
-import mlflow 
-import mlflow.sklearn 
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier 
-from sklearn.metrics import (accuracy_score, precision_score, recall_score, 
-                             f1_score, roc_auc_score, confusion_matrix)
-import joblib
 import warnings
 
+import joblib
+import mlflow
+import mlflow.sklearn
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import GridSearchCV, train_test_split
 
-# Suppress warnings for cleaner output during training.
+from src.data_processing import (
+    CATEGORICAL_FEATURE_COLS,
+    NUMERIC_FEATURE_COLS,
+    build_model_pipeline,
+    coerce_categoricals,
+)
+
 warnings.filterwarnings("ignore")
 
-def load_processed_data(file_path):
-    """Loads the model-ready data from the specified path."""
+TARGET_COL = "is_high_risk"
+FEATURE_COLS = NUMERIC_FEATURE_COLS + CATEGORICAL_FEATURE_COLS
+REGISTERED_MODEL_NAME = "CreditRiskClassifier"
+# Stock scikit-learn/numpy internals that MLflow's skops serialiser does not trust by
+# default. Listing them keeps the safer skops format instead of falling back to pickle.
+SKOPS_TRUSTED_TYPES = [
+    "numpy.dtype",
+    "sklearn.compose._column_transformer._RemainderColsList",
+]
+DEFAULT_DATA_PATH = os.path.join("data", "processed", "model_ready_data.csv")
+DEFAULT_MODEL_PATH = os.path.join("models", "best_model.pkl")
+
+
+def load_processed_data(file_path: str) -> pd.DataFrame:
+    """Load the model-ready data from the specified path."""
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Processed data file not found at {file_path}")
+        raise FileNotFoundError(
+            f"Processed data file not found at {file_path}. "
+            "Run `python -m src.data_processing` first."
+        )
     return pd.read_csv(file_path)
 
 
-def load_data():
-    """
-    Loads preprocessed data and separates features (X) and target (y).
-    Includes robust handling for the target column name.
-    """
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        processed_data_path = os.path.normpath(os.path.join(script_dir, '../data/processed/model_ready_data.csv'))
-        
-        data = load_processed_data(processed_data_path)
-        
-        # Define expected target column names, including the one from ColumnTransformer.
-        possible_target_cols = ['target__is_high_risk', 'is_high_risk', 'high_risk', 'risk_flag']
-        target_col = None
-        for col in possible_target_cols:
-            if col in data.columns:
-                target_col = col
-                break
-                
-        if not target_col:
-            raise ValueError(
-                f"No target column found. Expected one of: {', '.join(possible_target_cols)}"
-            )
-            
-        X = data.drop(columns=[target_col])
-        y = data[target_col]
-        
-        print(f"Loaded data with {X.shape[0]} rows and {X.shape[1]} features. Target column: '{target_col}'.")
-        return X, y
-        
-    except Exception as e:
-        print(f"Error loading data: {str(e)}")
-        raise
+def load_data(file_path: str = DEFAULT_DATA_PATH) -> tuple[pd.DataFrame, pd.Series]:
+    """Load preprocessed data and separate raw features (X) from the target (y)."""
+    data = load_processed_data(file_path)
 
-def evaluate_model(y_true, y_pred, y_proba):
-    """Calculates comprehensive classification evaluation metrics."""
-    metrics = {
-        'accuracy': accuracy_score(y_true, y_pred),
-        'precision': precision_score(y_true, y_pred, zero_division=0), 
-        'recall': recall_score(y_true, y_pred),
-        'f1': f1_score(y_true, y_pred),
-        'roc_auc': roc_auc_score(y_true, y_proba),
-        'confusion_matrix': confusion_matrix(y_true, y_pred).tolist()
-    }
-    return metrics
-
-def train_models():
-    """Trains, evaluates, and tracks multiple models using MLflow."""
-    try:
-        # Load preprocessed data
-        X, y = load_data()
-        
-        # Ensure target variable has at least two classes for classification.
-        if len(np.unique(y)) < 2:
-            raise ValueError("Target variable must have at least 2 classes for classification.")
-            
-        # Split data into training and testing sets, maintaining target distribution.
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+    if TARGET_COL not in data.columns:
+        raise ValueError(
+            f"Target column '{TARGET_COL}' not found. Available: {list(data.columns)}"
         )
-        print(f"Data split into {X_train.shape[0]} training and {X_test.shape[0]} testing samples.")
-        print(f"Training target distribution:\n{y_train.value_counts(normalize=True)}")
-        print(f"Testing target distribution:\n{y_test.value_counts(normalize=True)}")
 
-        # --- REMOVED TEMPORARY: REDUCE DATASET SIZE FOR TESTING ---
-        # The script will now train on the full X_train, y_train
-        # --- END REMOVED TEMPORARY SECTION ---
+    missing = [col for col in FEATURE_COLS if col not in data.columns]
+    if missing:
+        raise ValueError(f"Processed data is missing expected features: {missing}")
 
-        mlflow.set_tracking_uri("./mlruns") 
-        mlflow.set_experiment("CreditRiskModeling")
-        print("DEBUG: MLflow tracking URI and experiment set.")
-            
-        # Define models and their hyperparameter grids for GridSearchCV.
-        models_to_train = {
-            "LogisticRegression": {
-                'model': LogisticRegression(max_iter=1000, random_state=42),
-                'params': {
-                    'C': [0.001, 0.01, 0.1, 1, 10],
-                    'penalty': ['l1', 'l2'],
-                    'solver': ['liblinear'] 
-                }
+    X = coerce_categoricals(data[FEATURE_COLS])
+    y = data[TARGET_COL].astype(int)
+
+    print(f"Loaded {X.shape[0]} rows and {X.shape[1]} raw features.")
+    print(f"High-risk rate: {y.mean():.2%}")
+    return X, y
+
+
+def evaluate_model(y_true, y_pred, y_proba) -> dict:
+    """Calculate classification metrics required for model comparison."""
+    return {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "recall": recall_score(y_true, y_pred, zero_division=0),
+        "f1": f1_score(y_true, y_pred, zero_division=0),
+        "roc_auc": roc_auc_score(y_true, y_proba),
+        "confusion_matrix": confusion_matrix(y_true, y_pred).tolist(),
+    }
+
+
+def get_model_search_space() -> dict:
+    """Candidate estimators and their hyperparameter grids.
+
+    Grids are namespaced with ``classifier__`` because each estimator is tuned
+    inside the preprocessing pipeline, which prevents scaling statistics from
+    leaking across cross-validation folds.
+    """
+    return {
+        "LogisticRegression": {
+            "model": LogisticRegression(max_iter=1000, random_state=42),
+            "params": {
+                "classifier__C": [0.01, 0.1, 1, 10],
+                "classifier__penalty": ["l1", "l2"],
+                "classifier__solver": ["liblinear"],
             },
-            "RandomForestClassifier": {
-                'model': RandomForestClassifier(random_state=42),
-                'params': {
-                    'n_estimators': [50, 100, 200],
-                    'max_depth': [None, 10, 20],
-                    'min_samples_split': [2, 5, 10]
-                }
+        },
+        "RandomForestClassifier": {
+            "model": RandomForestClassifier(random_state=42),
+            "params": {
+                "classifier__n_estimators": [100, 200],
+                "classifier__max_depth": [None, 10, 20],
+                "classifier__min_samples_split": [2, 5],
             },
-             "GradientBoostingClassifier": {
-                "model": GradientBoostingClassifier(random_state=42),
-                "params": {
-                    'n_estimators': [100, 200],
-                    'learning_rate': [0.05, 0.1],
-                    'max_depth': [3, 5]
-                }
-            }
-        }
-        
-        best_model_overall = None
-        best_roc_auc_score = -1.0 
-        
-        print("DEBUG: About to start iterating through models_to_train (all models active).")
+        },
+        "GradientBoostingClassifier": {
+            "model": GradientBoostingClassifier(random_state=42),
+            "params": {
+                "classifier__n_estimators": [100, 200],
+                "classifier__learning_rate": [0.05, 0.1],
+                "classifier__max_depth": [3, 5],
+            },
+        },
+    }
 
-        for model_name, config in models_to_train.items():
-            with mlflow.start_run(run_name=model_name) as run:
-                print(f"\n--- Training {model_name} ---")
-                
-                # Hyperparameter tuning using GridSearchCV.
-                grid_search = GridSearchCV(
-                    config['model'],
-                    config['params'],
-                    cv=5, 
-                    scoring='roc_auc', 
-                    n_jobs=1, # Keeping n_jobs=1 for stability with full dataset
-                    verbose=1 
-                )
-                
-                print(f"DEBUG: Starting GridSearchCV fit for {model_name}...")
-                grid_search.fit(X_train, y_train)
-                print(f"DEBUG: GridSearchCV fit completed for {model_name}.")
-                
-                # Get the best estimator from GridSearchCV.
-                model = grid_search.best_estimator_
-                y_pred = model.predict(X_test)
-                y_proba = model.predict_proba(X_test)[:, 1] 
-                
-                # Evaluate model performance.
-                metrics = evaluate_model(y_test, y_pred, y_proba)
-                
-                mlflow.log_params(grid_search.best_params_)
-                mlflow.log_metrics({k: v for k, v in metrics.items() if k != 'confusion_matrix'})
-                mlflow.log_dict(metrics['confusion_matrix'], "confusion_matrix.json")
-                mlflow.sklearn.log_model(model, name=model_name,
-                                         input_example=X_train.head(1))
-                
-                print(f"Best Params: {grid_search.best_params_}")
-                print(f"ROC AUC: {metrics['roc_auc']:.4f}")
-                print(f"F1 Score: {metrics['f1']:.4f}")
-                print(f"Confusion Matrix:\n{np.array(metrics['confusion_matrix'])}") 
 
-                # Track the best performing model overall.
-                if metrics['roc_auc'] > best_roc_auc_score:
-                    best_roc_auc_score = metrics['roc_auc']
-                    best_model_overall = {
-                        "name": model_name,
-                        "estimator": model,
-                        "metrics": metrics,
-                        "run_id": run.info.run_id 
-                    }
-        
-        # Save the best model locally and register it in MLflow Model Registry.
-        if best_model_overall:
-            os.makedirs('../models', exist_ok=True)
-            joblib.dump(best_model_overall['estimator'], '../models/best_model.pkl')
-            
-            with mlflow.start_run(run_name="Register_Best_Overall_Model") as reg_run:
-                mlflow.sklearn.log_model(
-                    best_model_overall['estimator'],
-                    name="best_credit_risk_model_artifact",
-                    registered_model_name="CreditRiskClassifier",
-                    input_example=X_train.head(1)
-                )
-                mlflow.log_params(best_model_overall['estimator'].get_params())
-                mlflow.log_metrics({k: v for k, v in best_model_overall['metrics'].items() if k != 'confusion_matrix'}) 
-                mlflow.log_dict(best_model_overall['metrics']['confusion_matrix'], "best_confusion_matrix.json") 
+def train_models(
+    data_path: str = DEFAULT_DATA_PATH,
+    model_path: str = DEFAULT_MODEL_PATH,
+    tracking_uri: str | None = None,
+) -> dict:
+    """Train candidate models, log every run to MLflow, and register the best one."""
+    X, y = load_data(data_path)
 
-                print(f"\nBest overall model '{best_model_overall['name']}' saved locally "
-                      f"and registered as 'CreditRiskClassifier' in MLflow Model Registry.")
-                print(f"Best overall model ROC AUC: {best_roc_auc_score:.4f}")
-        else:
-            print("\nNo models were trained or evaluated successfully.")
-            
-    except Exception as e:
-        print(f"\nAn error occurred during the model training process: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise
+    if y.nunique() < 2:
+        raise ValueError("Target variable must have at least 2 classes.")
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    print(f"Split into {X_train.shape[0]} train and {X_test.shape[0]} test rows.")
+
+    os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+    mlflow.set_tracking_uri(tracking_uri or os.getenv("MLFLOW_TRACKING_URI", "./mlruns"))
+    mlflow.set_experiment("CreditRiskModeling")
+
+    best: dict | None = None
+
+    for model_name, config in get_model_search_space().items():
+        with mlflow.start_run(run_name=model_name):
+            print(f"\n--- Training {model_name} ---")
+
+            grid_search = GridSearchCV(
+                build_model_pipeline(config["model"]),
+                config["params"],
+                cv=5,
+                scoring="roc_auc",
+                n_jobs=-1,
+            )
+            grid_search.fit(X_train, y_train)
+
+            model = grid_search.best_estimator_
+            y_pred = model.predict(X_test)
+            y_proba = model.predict_proba(X_test)[:, 1]
+            metrics = evaluate_model(y_test, y_pred, y_proba)
+
+            mlflow.log_params(grid_search.best_params_)
+            mlflow.log_metrics(
+                {k: v for k, v in metrics.items() if k != "confusion_matrix"}
+            )
+            mlflow.log_dict(metrics["confusion_matrix"], "confusion_matrix.json")
+            mlflow.sklearn.log_model(
+                model,
+                name=model_name,
+                input_example=X_train.head(1),
+                skops_trusted_types=SKOPS_TRUSTED_TYPES,
+            )
+
+            print(f"Best params: {grid_search.best_params_}")
+            print(
+                f"ROC AUC: {metrics['roc_auc']:.4f} | F1: {metrics['f1']:.4f} | "
+                f"Accuracy: {metrics['accuracy']:.4f}"
+            )
+            print(f"Confusion matrix:\n{np.array(metrics['confusion_matrix'])}")
+
+            if best is None or metrics["roc_auc"] > best["metrics"]["roc_auc"]:
+                best = {"name": model_name, "estimator": model, "metrics": metrics}
+
+    if best is None:
+        raise RuntimeError("No models were trained successfully.")
+
+    os.makedirs(os.path.dirname(model_path) or ".", exist_ok=True)
+    joblib.dump(best["estimator"], model_path)
+
+    with mlflow.start_run(run_name="Register_Best_Model"):
+        mlflow.sklearn.log_model(
+            best["estimator"],
+            name="best_credit_risk_model",
+            registered_model_name=REGISTERED_MODEL_NAME,
+            input_example=X_train.head(1),
+            skops_trusted_types=SKOPS_TRUSTED_TYPES,
+        )
+        mlflow.log_metrics(
+            {k: v for k, v in best["metrics"].items() if k != "confusion_matrix"}
+        )
+        mlflow.set_tag("best_model", best["name"])
+
+    print(
+        f"\nBest model '{best['name']}' (ROC AUC {best['metrics']['roc_auc']:.4f}) "
+        f"saved to {model_path} and registered as '{REGISTERED_MODEL_NAME}'."
+    )
+    return best
+
 
 if __name__ == "__main__":
     train_models()

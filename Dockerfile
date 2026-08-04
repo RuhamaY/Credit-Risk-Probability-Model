@@ -1,32 +1,36 @@
-# Base image
-FROM python:3.9-slim
+# MLflow 3 requires Python >= 3.10, and this matches the version used in CI.
+FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# curl is needed by the container HEALTHCHECK below.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc python3-dev && \
+    apt-get install -y --no-install-recommends build-essential curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first to leverage Docker cache
+# Copy requirements first so dependency layers stay cached across code changes.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Generous timeout/retries: the ML wheels are large and slow mirrors break builds.
+RUN pip install --no-cache-dir --retries 10 --timeout 180 -r requirements.txt
 
-# Copy application code
 COPY . .
 
-# Environment variables
-ENV PYTHONPATH=/app
-ENV MLFLOW_TRACKING_URI=http://mlflow:5000
-ENV MODEL_NAME=credit_risk_model
+# Default to the local model artefact; docker-compose can point this elsewhere.
+ENV MODEL_PATH=/app/models/best_model.pkl \
+    MLFLOW_TRACKING_URI=file:///app/mlruns \
+    MLFLOW_ALLOW_FILE_STORE=true
 
-# Expose API port
+# Run as an unprivileged user rather than root.
+RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:8000/ || exit 1
 
-# Run the API
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

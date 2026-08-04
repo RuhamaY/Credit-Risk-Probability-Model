@@ -92,6 +92,30 @@ def create_risk_proxy(df):
 | Feature Drift        | Behavioral changes over time       | Quarterly model recalibration      |
 | Bias                 | Potential disparate impact         | Fairness testing by demographic    |
 
+### 3. Simple vs. Complex Models in Regulated Finance
+
+In a Basel II–aligned credit scoring context, the choice between a simple interpretable model (e.g., Logistic Regression with WoE-encoded features) and a complex high-performance model (e.g., Gradient Boosting) involves meaningful trade-offs:
+
+| Dimension | Logistic Regression + WoE | Gradient Boosting / Ensemble |
+| --- | --- | --- |
+| **Interpretability** | High — coefficients and WoE bins map directly to business rules and regulatory documentation. | Low — non-linear interactions are hard to explain to auditors and risk committees. |
+| **Regulatory acceptance** | Strong — aligns with model validation, stress testing, and capital requirement transparency. | Weaker unless supplemented with SHAP/LIME and extensive validation evidence. |
+| **Predictive performance** | Moderate — may underfit complex behavioral patterns in alternative data. | Strong — captures non-linear relationships and feature interactions. |
+| **Operational risk** | Lower — stable, easier to monitor for drift and recalibrate. | Higher — more sensitive to data shifts and harder to debug misclassifications. |
+| **Development cost** | Lower — faster to build, test, and maintain with WoE/IV analysis. | Higher — requires more tuning, explainability tooling, and governance overhead. |
+
+**Practical recommendation:** Use WoE + Logistic Regression as the baseline and regulatory-facing model, while exploring Gradient Boosting as a challenger model. If the complex model materially outperforms, deploy it only with documented explainability analysis and ongoing monitoring against the 90-day default proxy.
+
+## EDA Key Insights
+
+From `notebooks/1.0-eda.ipynb`, the top findings that guided feature engineering were:
+
+1. **Highly skewed transaction values** — Most `Value` amounts are small, with a long tail of large transactions; aggregate features (sum, mean, std) were essential to capture customer-level spending behavior.
+2. **Strong customer concentration** — A small subset of customers drives a disproportionate share of transaction volume, supporting RFM-based segmentation for proxy risk labeling.
+3. **Categorical imbalance** — `ProductCategory` and `ChannelId` are dominated by a few categories (airtime, financial services), requiring one-hot encoding with unknown-category handling.
+4. **No missing target labels** — The dataset lacks a direct default column, confirming the need for an RFM + clustering proxy for `is_high_risk`.
+5. **Temporal patterns** — Transaction activity clusters around specific hours and months, motivating hour/day/month feature extraction.
+
 ## Model Development
 
 **Training Framework:**
@@ -133,23 +157,14 @@ cd credit-risk-model
 
 ```bash
 python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
-```
-
-### 3. Install Python Dependencies
-
-```bash
+source venv/bin/activate   # Linux/macOS
+# venv\Scripts\activate    # Windows
 pip install -r requirements.txt
 ```
 
-### 4. Data Acquisition
+All development commands below assume the virtual environment is activated.
 
-Place your raw dataset files in the `data/raw/` directory.
-
-### 5. Run the Data Processing Pipeline
+### 3. Data Acquisition
 
 ```bash
 python src/data_processing.py
@@ -157,13 +172,15 @@ python src/data_processing.py
 
 This script performs cleaning, feature engineering (including RFM and WoE), and generates `model_ready_data.csv`.
 
-### 6. Run Unit Tests
+### 4. Run the Data Processing Pipeline
+
+### 5. Run Unit Tests
 
 ```bash
-python tests/test_data_processing.py
+PYTHONPATH=. pytest tests/ -v
 ```
 
-### 7. Model Training
+### 6. Model Training
 
 ```bash
 python src/train.py
